@@ -26,9 +26,6 @@ claude/
 geminicode.py
 metadata.txt
 
-# Personal folders
-Antisemetism Royal Commission Review/
-
 # Experimental / upload scripts (use env-var credentials locally only)
 convert_n_upload.ps1
 convert_n_upload2.ps1
