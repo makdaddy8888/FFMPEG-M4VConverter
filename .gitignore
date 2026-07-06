@@ -1,0 +1,54 @@
+# FFmpeg distribution (install separately — https://ffmpeg.org/download.html)
+*.exe
+*.dll
+bin/
+doc/
+include/
+lib/
+presets/
+
+# Media files
+*.mpg
+*.mp4
+*.mts
+*.MTS
+*.m2ts
+*.m4v
+*.mov
+*.avi
+*.mkv
+*.wmv
+*.vob
+
+# Personal / local projects
+python_app/
+claude/
+geminicode.py
+metadata.txt
+
+# Personal folders
+Antisemetism Royal Commission Review/
+
+# Experimental / upload scripts (use env-var credentials locally only)
+convert_n_upload.ps1
+convert_n_upload2.ps1
+
+# Incomplete drafts
+convert1a.ps1
+convert_encode.ps1
+
+# OAuth tokens and credentials (never commit)
+yt_token.json
+*_token.json
+.env
+.env.*
+secrets.ps1
+*credentials*.ps1
+
+# Local output
+*.csv
+
+# OS / editor
+.DS_Store
+Thumbs.db
+desktop.ini
