@@ -35,17 +35,17 @@ Re-encoding once to a good archive, then downsampling for mobile, avoids running
         │
         ▼
  ┌──────────────────┐
- │ 1. INVENTORY     │  video_inventory_to_csv.ps1 (optional)
+ │ 1. INVENTORY     │  Export-VideoInventory.ps1 (optional)
  │    ffprobe audit │
  └────────┬─────────┘
           ▼
  ┌──────────────────┐
- │ 2. ARCHIVE       │  convertMTS2VOB.ps1
+ │ 2. ARCHIVE       │  Convert-MtsToArchive.ps1
  │    1080p HEVC    │  deinterlace + NVENC + AAC
  └────────┬─────────┘
           ▼
  ┌──────────────────┐
- │ 3. iPhone COPY   │  convert_MTStoIphone.ps1
+ │ 3. iPhone COPY   │  Convert-ToIphone.ps1
  │    480p HEVC     │  scale down + preserve creation_time
  └────────┬─────────┘
           ▼
@@ -80,16 +80,14 @@ Note:
 For a full library audit:
 
 ```powershell
-.\video_inventory_to_csv.ps1 -RootPath "D:\Camcorder" -OutputFile ".\inventory.csv"
+.\scripts\Export-VideoInventory.ps1 -RootPath "D:\Camcorder" -OutputFile ".\inventory.csv"
 ```
-
-Edit the default paths inside the script or pass parameters as shown.
 
 ---
 
 ### Step 1 — Archive conversion
 
-**Script:** `convertMTS2VOB.ps1`
+**Script:** `scripts/Convert-MtsToArchive.ps1`
 
 **What it does:**
 
@@ -99,11 +97,12 @@ Edit the default paths inside the script or pass parameters as shown.
 - Remuxes audio to AAC 192k
 - Adds `+faststart` for streaming/seeking
 
-**Before running**, edit at the top of the script:
+**Before running**, pass your folders as parameters:
 
 ```powershell
-$inputFolder  = "D:\YourPath\STREAM"
-$outputFolder = "D:\YourPath\Archive_1080p"
+.\scripts\Convert-MtsToArchive.ps1 `
+    -InputFolder "D:\YourPath\STREAM" `
+    -OutputFolder "D:\YourPath\Archive_1080p"
 ```
 
 **FFmpeg flags explained:**
@@ -120,7 +119,7 @@ $outputFolder = "D:\YourPath\Archive_1080p"
 
 ### Step 2 — iPhone / mobile copy
 
-**Script:** `convert_MTStoIphone.ps1`
+**Script:** `scripts/Convert-ToIphone.ps1`
 
 **What it does:**
 
@@ -133,11 +132,12 @@ $outputFolder = "D:\YourPath\Archive_1080p"
 **Before running**, point input at your archive folder:
 
 ```powershell
-$inputFolder  = "D:\YourPath\Archive_1080p"
-$outputFolder = "D:\YourPath\iPhone_Converted"
+.\scripts\Convert-ToIphone.ps1 `
+    -InputFolder "D:\YourPath\Archive_1080p" `
+    -OutputFolder "D:\YourPath\iPhone"
 ```
 
-For **720p** instead of 480p, use `Convert_to_iphone_size.ps1` and change the scale filter to match your preference.
+For **720p** instead of 480p, use `scripts/Convert-ToIphone720.ps1`.
 
 ---
 
@@ -145,10 +145,10 @@ For **720p** instead of 480p, use `Convert_to_iphone_size.ps1` and change the sc
 
 | Your situation | Use this |
 |----------------|----------|
-| Blu-ray `.m2ts` rips, no GPU | `convert2.ps1` (interactive paths, CPU `libx264`) |
-| Tight file-size budget | `vob2m4v.ps1` (fixed bitrate cap `2M`) |
-| Mixed formats already on disk | `Convert_to_iphone_size.ps1` |
-| Early codec comparison | `convert.ps1` (commented FFmpeg one-liners) |
+| Blu-ray `.m2ts` rips, no GPU | `Convert-M2tsToMp4.ps1` (CPU `libx264`) |
+| Tight file-size budget | `Convert-MtsToMobile.ps1` (fixed bitrate cap `2M`) |
+| Mixed formats already on disk | `Convert-ToIphone720.ps1` |
+| Early codec comparison | `Convert-M2ts-Experiments.ps1` (commented FFmpeg one-liners) |
 
 ---
 
@@ -182,7 +182,7 @@ Priority order:
 2. **Filename patterns** — e.g. `2016-07-04_00012.mp4` or `04072016`
 3. **Filesystem date** — last resort
 
-The `Get-RecordingTime` function in `convert_MTStoIphone.ps1` implements (1) and (3). You can pipe that date into a `.nfo` `<premiered>` field in your own fork.
+The `Get-RecordingTime` function in `Convert-ToIphone.ps1` implements (1) and (3). You can pipe that date into a `.nfo` `<premiered>` field in your own fork.
 
 ### Optional: AI-generated descriptions
 
@@ -230,12 +230,10 @@ git checkout -b panasonic-sd900-ntsc
 Minimal edit checklist:
 
 ```powershell
-# 1. Paths
-$inputFolder  = "YOUR_INPUT"
-$outputFolder = "YOUR_OUTPUT"
+# 1. Paths — pass as parameters or edit the param() defaults
+.\scripts\Convert-MtsToArchive.ps1 -InputFolder "YOUR_INPUT" -OutputFolder "YOUR_OUTPUT"
 
-# 2. Input glob (if not .MTS)
-Get-ChildItem -Path $inputFolder -Filter *.MTS   # change extension
+# 2. Input glob (if not .MTS) — edit Get-ChildItem -Filter in the script
 
 # 3. Deinterlace (if progressive source, remove yadif)
 -vf "yadif=mode=1"
@@ -261,7 +259,7 @@ Before batch processing, convert **one** file and check:
 
 - Keep originals on the SD card or a backup drive until verified
 - Log failures — redirect stderr: `2>> errors.log`
-- Use `Convert_to_iphone_size.ps1` skip logic (`if (Test-Path $outputFile)`) as a model for resume support
+- Use `Convert-ToIphone720.ps1` skip logic (`if (Test-Path $outputFile)`) as a model for resume support
 
 ### 7. Share improvements back
 
@@ -281,7 +279,7 @@ Change the output extension. For HEVC/H.264 + AAC in an MPEG-4 container, `.m4v`
 
 ### "I have no NVIDIA GPU"
 
-Use `convert2.ps1` as a template (`libx264`, `-crf 20`, `-preset slow`). Expect longer encode times.
+Use `Convert-M2tsToMp4.ps1` as a template (`libx264`, `-crf 20`, `-preset slow`). Expect longer encode times.
 
 ### "I want one script, not two steps"
 
@@ -295,7 +293,7 @@ Merge archive and iPhone filters into a single FFmpeg call — trade-off: you ca
 
 ### "Files are already MP4 but huge"
 
-Skip step 1; run `Convert_to_iphone_size.ps1` or only the scale/CQ section from `convert_MTStoIphone.ps1`.
+Skip step 1; run `Convert-ToIphone720.ps1` or only the scale/CQ section from `Convert-ToIphone.ps1`.
 
 ---
 

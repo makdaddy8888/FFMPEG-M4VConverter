@@ -23,27 +23,42 @@ It is not a polished application — it is a set of working scripts you can **fo
 
 ---
 
-## What You Get
+## Script Naming Convention
 
-| Goal | How this repo helps |
-|------|---------------------|
-| Convert `.MTS` / `.m2ts` to MP4 | Ready-made FFmpeg command lines with deinterlacing |
-| Smaller files without ugly quality loss | HEVC via NVIDIA NVENC (`hevc_nvenc`) with tuned CQ/VBR |
-| iPhone / iPad playback | 480p or 720p HEVC, `yuv420p`, `+faststart` |
-| Keep the original recording date | `ffprobe` reads `creation_time`; FFmpeg writes it back |
-| Understand your source files | Optional `video_inventory_to_csv.ps1` using ffprobe |
-| Plex-friendly sidecars | Workflow docs for `.nfo` metadata (see WORKFLOW.md) |
+All scripts follow PowerShell **Verb-Noun** naming and live in the [`scripts/`](scripts/) folder:
+
+| Verb | Meaning in this repo |
+|------|----------------------|
+| `Convert-*` | Re-encode or remux video with FFmpeg |
+| `Export-*` | Extract information without modifying files |
+
+Run any script with built-in help:
+
+```powershell
+Get-Help .\scripts\Convert-MtsToArchive.ps1 -Full
+```
+
+---
+
+## Script Reference
+
+| Script | Input | Output | Encoding | Best for |
+|--------|-------|--------|----------|----------|
+| [`Convert-MtsToArchive.ps1`](scripts/Convert-MtsToArchive.ps1) | `.MTS` | 1080p `.mp4` | HEVC NVENC, `yadif` | **Step 1** — master archive |
+| [`Convert-ToIphone.ps1`](scripts/Convert-ToIphone.ps1) | `.mp4` archive | 854×480 `.mp4` | HEVC NVENC + dates | **Step 2** — iPhone / sharing |
+| [`Convert-ToIphone720.ps1`](scripts/Convert-ToIphone720.ps1) | mixed video | 1280×720 `.mp4` | HEVC NVENC + CUDA scale | Larger phone / tablet screen |
+| [`Convert-MtsToMobile.ps1`](scripts/Convert-MtsToMobile.ps1) | `.MTS` | 480p `.mp4` | HEVC NVENC, bitrate cap | One-step mobile copy (no archive) |
+| [`Convert-M2tsToMp4.ps1`](scripts/Convert-M2tsToMp4.ps1) | `.m2ts` | `.mp4` | libx264 CPU | No GPU / Blu-ray rips |
+| [`Export-VideoInventory.ps1`](scripts/Export-VideoInventory.ps1) | any folder | `.csv` report | ffprobe only | Audit library before converting |
+| [`Convert-M2ts-Experiments.ps1`](scripts/Convert-M2ts-Experiments.ps1) | `.m2ts` | `.m4v` | varies | Reference / codec experiments |
 
 ---
 
 ## Requirements
 
-- **Windows** with PowerShell 5.1+ (scripts can be adapted for Linux/macOS — FFmpeg flags are the same)
+- **Windows** with PowerShell 5.1+ (FFmpeg flags work on any OS if you port the commands)
 - **[FFmpeg](https://ffmpeg.org/download.html)** and **ffprobe** in your `PATH`
-- **Optional:** NVIDIA GPU with NVENC support for fast encoding (CPU fallback documented below)
-- **Optional:** [ExifTool](https://exiftool.org/) if you extend scripts for embedded metadata tags
-
-Verify installation:
+- **Optional:** NVIDIA GPU with NVENC for GPU scripts (CPU alternative in `Convert-M2tsToMp4.ps1`)
 
 ```powershell
 ffmpeg -version
@@ -54,113 +69,96 @@ ffprobe -version
 
 ## Quick Start
 
-### 1. Fork and clone
+### 1. Clone the repo
 
 ```powershell
-git clone https://github.com/YOUR_USERNAME/FFMPEG-M4VConverter.git
+git clone https://github.com/makdaddy8888/FFMPEG-M4VConverter.git
 cd FFMPEG-M4VConverter
 ```
 
 ### 2. Copy files from your SD card
 
-Copy the contents of the card's `STREAM` folder (or entire `BDMV` tree) to a working directory on your PC. Do not rename `.MTS` files before probing them.
+Copy the `STREAM` folder from your SD card to a working directory. Do not rename `.MTS` files before probing them.
 
-### 3. Edit paths in a script
-
-Open a script and change the `$inputFolder` and `$outputFolder` variables at the top to your local paths. Every script follows this pattern.
-
-### 4. Run the two-step pipeline
+### 3. Run the two-step pipeline
 
 **Step A — Archive (1080p HEVC, deinterlaced):**
 
 ```powershell
-.\convertMTS2VOB.ps1
+.\scripts\Convert-MtsToArchive.ps1 `
+    -InputFolder "D:\Camcorder\STREAM" `
+    -OutputFolder "D:\Archive"
 ```
 
-**Step B — iPhone-sized copy (480p HEVC, dates preserved):**
+**Step B — iPhone copy (480p HEVC, dates preserved):**
 
 ```powershell
-.\convert_MTStoIphone.ps1
+.\scripts\Convert-ToIphone.ps1 `
+    -InputFolder "D:\Archive" `
+    -OutputFolder "D:\iPhone"
 ```
 
-> Script names are historical — `convertMTS2VOB.ps1` outputs `.mp4`, not VOB. See the script reference below.
+### 4. Optional — audit your library first
 
----
-
-## Script Reference
-
-| Script | Input | Output | Encoding | Best for |
-|--------|-------|--------|----------|----------|
-| `convertMTS2VOB.ps1` | `.MTS` | 1080p `.mp4` | HEVC NVENC, `yadif` | Master archive |
-| `convert_MTStoIphone.ps1` | `.mp4` archive | 854×480 `.mp4` | HEVC NVENC | iPhone / sharing |
-| `Convert_to_iphone_size.ps1` | mixed video | 1280×720 `.mp4` | HEVC NVENC + CUDA scale | Larger phone screen |
-| `convert2.ps1` | `.m2ts` (prompts for paths) | `.mp4` | libx264 CPU | No GPU / Blu-ray rips |
-| `vob2m4v.ps1` | `.MTS` | 480p `.mp4` | HEVC NVENC, bitrate cap | Controlled file size |
-| `video_inventory_to_csv.ps1` | any folder | `.csv` report | ffprobe only | Auditing a video library |
-
-### Experimental / local-only (not recommended as starting points)
-
-| Script | Notes |
-|--------|-------|
-| `convert.ps1` | Early codec experiments — commented alternatives left in for reference |
-| `convert1a.ps1` | Incomplete parallel-encoding draft |
-| `convert_encode.ps1` | Work in progress — syntax not verified |
-| `convert_n_upload.ps1` | Encode + YouTube upload — requires env-var credentials, not for general use |
+```powershell
+.\scripts\Export-VideoInventory.ps1 `
+    -RootPath "D:\Camcorder" `
+    -OutputFile ".\inventory.csv"
+```
 
 ---
 
 ## Encoding Settings at a Glance
 
-| Setting | Archive (`convertMTS2VOB`) | iPhone (`convert_MTStoIphone`) |
-|---------|------------------------------|--------------------------------|
+| Setting | Archive | iPhone |
+|---------|---------|--------|
+| Script | `Convert-MtsToArchive` | `Convert-ToIphone` |
 | Video codec | `hevc_nvenc` | `hevc_nvenc` |
 | Deinterlace | `yadif=mode=1` | `yadif=mode=1` |
 | Resolution | source (1080p) | 854×480 |
 | Quality | CQ 27, VBR, maxrate 6M | CQ 27, VBR |
 | Audio | AAC 192k | AAC 128k |
-| Container | MP4 `+faststart` | MP4 `+faststart` + `creation_time` metadata |
+| Container | MP4 `+faststart` | MP4 `+faststart` + `creation_time` |
 
 ### CPU-only fallback
 
-Replace GPU lines with something like:
+Replace GPU encoding with:
 
 ```powershell
 -c:v libx265 -crf 24 -preset medium -vf "yadif=mode=1"
 ```
 
-Remove `-hwaccel cuda` and `hevc_nvenc` / `h264_nvenc` flags.
+Remove `-hwaccel cuda` and `hevc_nvenc` flags. See `Convert-M2tsToMp4.ps1` for a full CPU example.
 
 ---
 
 ## Preserving Recording Dates
 
-Camcorder `.MTS` files often store the real recording timestamp in stream metadata. The `Get-RecordingTime` function in `convert_MTStoIphone.ps1`:
+`Convert-ToIphone.ps1` uses a `Get-RecordingTime` helper that:
 
 1. Reads `creation_time` from ffprobe (format or stream tags)
 2. Falls back to the file's filesystem creation time
 3. Writes it back with `-metadata creation_time=...`
-4. Optionally sets the output file's Windows timestamps to match
+4. Sets Windows file timestamps to match
 
 This keeps chronological order in Plex, Finder, and Windows Explorer after conversion.
 
 ---
 
-## Forking This Project for Your Own Challenge
+## Forking for Your Own Conversion Challenge
 
-This repo is intentionally **script-based, not library-based**. To adapt it:
-
-1. **Fork** the repository on GitHub
-2. **Identify your source format** — run `ffprobe -i yourfile.MTS` and note codec, resolution, frame rate, and whether video is interlaced
+1. **Fork** the repo on GitHub
+2. **Probe your source** — `ffprobe -i yourfile.MTS`
 3. **Pick the closest script** from the table above
-4. **Change only what you need** — usually `$inputFolder`, `$outputFolder`, `-vf` (scale/deinterlace), and `-cq` / `-crf` (quality)
-5. **Test one file** before batch-processing hundreds of clips
-6. **Commit your changes** on your fork — you might need different resolutions (4K camcorder), PAL vs NTSC deinterlacing, or `libx264` for wider device support
+4. **Pass your paths** via `-InputFolder` and `-OutputFolder` parameters
+5. **Tune quality** — adjust `-cq`, `-crf`, scale, or deinterlace settings
+6. **Test one file** before batch processing
 
-A detailed walkthrough — including how to tune for different camcorders, add Plex `.nfo` files, and optionally experiment with AI scene descriptions — is in **[docs/WORKFLOW.md](docs/WORKFLOW.md)**.
+Full walkthrough: **[docs/WORKFLOW.md](docs/WORKFLOW.md)**
 
 ---
 
-## Typical Folder Layout on an AVCHD SD Card
+## Typical AVCHD SD Card Layout
 
 ```
 PRIVATE/
@@ -169,10 +167,9 @@ PRIVATE/
       STREAM/
         00000.MTS
         00001.MTS
-        ...
 ```
 
-Point `$inputFolder` at `STREAM` (or a copy of it on your hard drive).
+Point `-InputFolder` at `STREAM`.
 
 ---
 
@@ -181,11 +178,11 @@ Point `$inputFolder` at `STREAM` (or a copy of it on your hard drive).
 | Problem | Things to try |
 |---------|---------------|
 | `ffmpeg` not found | Install FFmpeg and add `bin` to PATH |
-| CUDA / NVENC errors | Update NVIDIA drivers; fall back to `libx264` / `libx265` |
-| Audio out of sync | Scripts use `-fflags +genpts`, `aresample=async=1`, and `vsync vfr` — keep these for problematic MTS |
-| Wrong dates in output | Run `ffprobe -show_entries format_tags=creation_time -i file.MTS` on the source |
-| Interlaced output | Ensure `yadif` or `yadif=mode=1` is in the `-vf` chain |
-| Files too large | Lower `-cq` (higher number = smaller), reduce resolution, or lower `-maxrate` |
+| CUDA / NVENC errors | Update NVIDIA drivers; use `Convert-M2tsToMp4.ps1` (CPU) |
+| Audio out of sync | Keep `-fflags +genpts`, `aresample=async=1`, `vsync vfr` |
+| Wrong dates | `ffprobe -show_entries format_tags=creation_time -i file.MTS` |
+| Interlaced output | Ensure `yadif` is in the `-vf` chain |
+| Files too large | Increase `-cq` number, reduce resolution, or lower `-maxrate` |
 
 ---
 
@@ -197,11 +194,6 @@ See [LICENSE.txt](LICENSE.txt) (GNU GPL v3).
 
 ## Contributing
 
-Forks and pull requests are welcome — especially:
+Pull requests welcome — especially Linux/macOS shell ports, CPU-only variants, and Plex `.nfo` generation.
 
-- Parameterised scripts (`-InputFolder` / `-OutputFolder` instead of hardcoded paths)
-- Linux / macOS shell equivalents
-- CPU-only variants documented per script
-- Plex `.nfo` generation without requiring AI
-
-If this helped you rescue old camcorder footage, consider starring the repo so others can find it.
+If this helped you rescue old camcorder footage, consider starring the repo.
