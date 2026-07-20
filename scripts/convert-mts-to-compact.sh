@@ -1,15 +1,19 @@
 #!/usr/bin/env bash
 # convert-mts-to-compact.sh — MTS → compact iPhone HEVC (~8:1 size budget)
-# CPU-first (libx265). Optional NVENC if PreferNvenc=1 and a GPU is present.
+# CPU-first (libx265). Optional NVENC. Interactive metadata review per clip.
 set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/camcorder-metadata.sh
+source "$SCRIPT_DIR/lib/camcorder-metadata.sh"
 
 usage() {
   cat <<'EOF'
 Usage: convert-mts-to-compact.sh -i INPUT_FOLDER -o OUTPUT_FOLDER [options]
 
 Converts .MTS camcorder files to compact 480p HEVC MP4 for iPhone.
-Bitrate is chosen from total source size so the batch lands near an 8:1
-ratio (e.g. 8 GB in -> ~1 GB out) without heavy quality loss on a phone.
+Fixes PAL/NTSC interlaced framerate (50i→25fps, 60i→30fps).
+Names outputs like 00018-10072026.mp4 (clip + recording date DDMMYYYY).
 
 Required:
   -i, --input DIR       Folder containing .MTS files (searched recursively)
@@ -24,7 +28,11 @@ Options:
   --min-video-kbps N    Video bitrate floor (default: 600)
   --max-video-kbps N    Video bitrate ceiling (default: 1800)
   --prefer-nvenc        Use NVIDIA NVENC when available (default: CPU libx265)
+  --interactive         After each clip: open player, prompt for metadata (default if TTY)
+  --no-interactive      Batch mode, no prompts
   -h, --help            Show this help
+
+Sidecars written per clip: <name>.json metadata + metadata-log.csv in output folder.
 EOF
 }
 
@@ -38,6 +46,7 @@ AUDIO_KBPS=96
 MIN_VIDEO_KBPS=600
 MAX_VIDEO_KBPS=1800
 PREFER_NVENC=0
+INTERACTIVE=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -51,10 +60,16 @@ while [[ $# -gt 0 ]]; do
     --min-video-kbps) MIN_VIDEO_KBPS="$2"; shift 2 ;;
     --max-video-kbps) MAX_VIDEO_KBPS="$2"; shift 2 ;;
     --prefer-nvenc) PREFER_NVENC=1; shift ;;
+    --interactive) INTERACTIVE=1; shift ;;
+    --no-interactive) INTERACTIVE=0; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown option: $1" >&2; usage >&2; exit 1 ;;
   esac
 done
+
+if [[ -z "$INTERACTIVE" ]]; then
+  if [[ -t 0 ]]; then INTERACTIVE=1; else INTERACTIVE=0; fi
+fi
 
 if [[ -z "$INPUT_FOLDER" || -z "$OUTPUT_FOLDER" ]]; then
   usage >&2
@@ -68,6 +83,7 @@ command -v ffmpeg >/dev/null || { echo "ffmpeg not found on PATH" >&2; exit 1; }
 command -v ffprobe >/dev/null || { echo "ffprobe not found on PATH" >&2; exit 1; }
 
 mkdir -p "$OUTPUT_FOLDER"
+METADATA_CSV="$OUTPUT_FOLDER/metadata-log.csv"
 
 mapfile -d '' FILES < <(find "$INPUT_FOLDER" -type f \( -iname '*.mts' \) -print0 | sort -z)
 if [[ ${#FILES[@]} -eq 0 ]]; then
@@ -96,23 +112,14 @@ get_duration() {
       return
     fi
   fi
-  # Fallback: assume ~17 Mbps AVCHD
   local bytes
   bytes="$(stat -c%s "$f" 2>/dev/null || stat -f%z "$f")"
   awk -v b="$bytes" 'BEGIN { printf "%.3f", (b * 8) / 17000000 }'
 }
 
-get_creation_time() {
-  local f="$1" ct
-  ct="$(ffprobe -v quiet -show_entries format_tags=creation_time -of default=noprint_wrappers=1:nokey=1 "$f" 2>/dev/null | head -n1 || true)"
-  if [[ -z "$ct" ]]; then
-    ct="$(ffprobe -v quiet -show_entries stream_tags=creation_time -of default=noprint_wrappers=1:nokey=1 "$f" 2>/dev/null | head -n1 || true)"
-  fi
-  if [[ -n "$ct" ]]; then
-    echo "$ct"
-  else
-    date -u -r "$f" +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date -u -d "@$(stat -c%Y "$f")" +"%Y-%m-%dT%H:%M:%SZ"
-  fi
+get_source_fps_label() {
+  ffprobe -v quiet -select_streams v:0 -show_entries stream=avg_frame_rate,field_order \
+    -of default=noprint_wrappers=1 "$1" 2>/dev/null | tr '\n' ' '
 }
 
 echo "Probing durations for bitrate budget..."
@@ -158,18 +165,21 @@ else
 fi
 
 echo "Compact iPhone conversion (~${TARGET_RATIO}:1 budget)"
-echo "  Input:     $INPUT_FOLDER"
-echo "  Output:    $OUTPUT_FOLDER"
-echo "  Clips:     ${#FILES[@]}"
+echo "  Input:       $INPUT_FOLDER"
+echo "  Output:      $OUTPUT_FOLDER"
+echo "  Clips:       ${#FILES[@]}"
+echo "  Interactive: $([[ "$INTERACTIVE" -eq 1 ]] && echo yes || echo no)"
 python3 - "$TOTAL_SOURCE_BYTES" "$TARGET_TOTAL_BYTES" "$MAX_OUTPUT_BYTES" "$TOTAL_DURATION" "$AVG_VIDEO_KBPS" "$MAXRATE_KBPS" "$WIDTH" "$HEIGHT" "$AUDIO_KBPS" "$ENCODER_LABEL" <<'PY'
 import sys
 src, budget, cap, dur, avg, mx, w, h, a, enc = sys.argv[1:]
-print(f"  Source:    {int(src)/1048576:.2f} MB")
-print(f"  Budget:    {int(budget)/1048576:.2f} MB (cap {int(cap)/1048576:.0f} MB)")
-print(f"  Duration:  {float(dur):.1f} s")
-print(f"  Video:     ~{avg} kbps avg, max {mx} kbps, {w}x{h}")
-print(f"  Audio:     AAC {a} kbps")
-print(f"  Encoder:   {enc}")
+print(f"  Source:      {int(src)/1048576:.2f} MB")
+print(f"  Budget:      {int(budget)/1048576:.2f} MB (cap {int(cap)/1048576:.0f} MB)")
+print(f"  Duration:    {float(dur):.1f} s")
+print(f"  Video:       ~{avg} kbps avg, max {mx} kbps, {w}x{h}")
+print(f"  Audio:       AAC {a} kbps")
+print(f"  Encoder:     {enc}")
+print(f"  Framerate:   50i→25fps / 60i→30fps after deinterlace")
+print(f"  Naming:      CLIP-DDMMYYYY.mp4")
 PY
 echo
 
@@ -182,31 +192,39 @@ for idx in "${!FILES[@]}"; do
   dur="${DURATIONS[$idx]}"
   base="$(basename "$f")"
   stem="${base%.*}"
-  out="$OUTPUT_FOLDER/${stem}.mp4"
+  creation="$(cam_meta_get_creation_iso "$f")"
+  out_base="$(cam_meta_output_basename "$stem" "$creation")"
+  out="$OUTPUT_FOLDER/${out_base}.mp4"
+  json_sidecar="$OUTPUT_FOLDER/${out_base}.json"
+  tmp="${out}.tmp.mp4"
 
   if [[ -f "$out" ]]; then
-    echo "Skipping existing: $base"
+    echo "Skipping existing: $(basename "$out")"
     OUTPUT_BYTES=$((OUTPUT_BYTES + $(stat -c%s "$out" 2>/dev/null || stat -f%z "$out")))
     OK=$((OK + 1))
     continue
   fi
 
-  creation="$(get_creation_time "$f")"
-  echo "Processing $base (${dur}s)..."
-  echo "  Recorded: $creation"
+  target_fps="$(cam_meta_target_fps "$f")"
+  source_fps_label="$(get_source_fps_label "$f")"
 
-  vf="yadif=mode=1,scale=${WIDTH}:${HEIGHT}:flags=lanczos"
+  echo "Processing $base (${dur}s)..."
+  echo "  Recorded:    $creation"
+  echo "  Output name: ${out_base}.mp4"
+  echo "  Source fps:  $source_fps_label"
+  echo "  Target fps:  $target_fps (progressive)"
+
+  # Deinterlace + correct fps + scale. CFR for stable phone playback.
+  vf="yadif=mode=1,fps=${target_fps},scale=${WIDTH}:${HEIGHT}:flags=lanczos"
   common=(
     -y -hide_banner -loglevel error -stats
     -fflags +genpts -i "$f"
     -vf "$vf"
     -map 0:v:0 -map 0:a?
-    -fps_mode vfr
-    -af aresample=async=1
+    -fps_mode cfr
+    -r "$target_fps"
+    -af aresample=async=1:first_pts=0
     -c:a aac -b:a "${AUDIO_KBPS}k"
-    -movflags +faststart+use_metadata_tags
-    -metadata "creation_time=${creation}"
-    -metadata "title=${stem}"
     -pix_fmt yuv420p
   )
 
@@ -215,8 +233,9 @@ for idx in "${!FILES[@]}"; do
       -c:v hevc_nvenc -preset p5 -profile:v main -rc vbr \
       -b:v "${AVG_VIDEO_KBPS}k" -maxrate "${MAXRATE_KBPS}k" -bufsize "${BUFSIZE_KBPS}k" \
       -cq 28 \
-      "$out"; then
-      echo "  Failed: $base"
+      "$tmp"; then
+      echo "  Failed encode: $base" >&2
+      rm -f "$tmp"
       FAILED=$((FAILED + 1))
       echo
       continue
@@ -226,27 +245,61 @@ for idx in "${!FILES[@]}"; do
       -c:v libx265 -preset medium \
       -b:v "${AVG_VIDEO_KBPS}k" -maxrate "${MAXRATE_KBPS}k" -bufsize "${BUFSIZE_KBPS}k" \
       -x265-params log-level=error \
-      "$out"; then
-      echo "  Failed: $base"
+      "$tmp"; then
+      echo "  Failed encode: $base" >&2
+      rm -f "$tmp"
       FAILED=$((FAILED + 1))
       echo
       continue
     fi
   fi
 
-  # Best-effort: match file mtime to recording time when parseable
-  if ts="$(date -u -d "$creation" +%Y%m%d%H%M.%S 2>/dev/null || true)"; then
-    touch -t "$ts" "$out" 2>/dev/null || true
+  # Verify output fps
+  out_fps="$(ffprobe -v quiet -select_streams v:0 -show_entries stream=avg_frame_rate -of default=noprint_wrappers=1:nokey=1 "$tmp" 2>/dev/null || echo "?")"
+  echo "  Encoded fps: $out_fps"
+
+  META_TITLE="$out_base"
+  META_DESC=""
+  META_LOC=""
+  META_LAT=""
+  META_LON=""
+  META_ISO6709=""
+  META_CREATION="$creation"
+  META_NOTES=""
+
+  if [[ "$INTERACTIVE" -eq 1 ]]; then
+    cam_meta_interactive_review "$tmp" "$out_base" "$creation" "$source_fps_label" "$target_fps"
+    # Recompute filename if user changed date
+    out_base="$(cam_meta_output_basename "$stem" "$META_CREATION")"
+    out="$OUTPUT_FOLDER/${out_base}.mp4"
+    json_sidecar="$OUTPUT_FOLDER/${out_base}.json"
   fi
+
+  cam_meta_apply_to_mp4 "$tmp" "$out" "$META_CREATION" "$META_TITLE" "$META_DESC" \
+    "$META_LOC" "$META_LAT" "$META_LON" "$META_ISO6709"
+  rm -f "$tmp"
+
+  cam_meta_touch_file_time "$out" "$META_CREATION"
+
+  cam_meta_write_json_sidecar "$json_sidecar" \
+    "$f" "$out" "$META_CREATION" "$META_TITLE" "$META_DESC" \
+    "$META_LOC" "$META_LAT" "$META_LON" "$META_ISO6709" \
+    "$source_fps_label" "$target_fps" "$META_NOTES"
+
+  cam_meta_append_csv_log "$METADATA_CSV" \
+    "$f" "$out" "$META_CREATION" "$META_TITLE" "$META_DESC" \
+    "$META_LOC" "$META_LAT" "$META_LON" "$META_ISO6709" \
+    "$source_fps_label" "$target_fps" "$META_NOTES"
 
   out_size="$(stat -c%s "$out" 2>/dev/null || stat -f%z "$out")"
   src_size="$(stat -c%s "$f" 2>/dev/null || stat -f%z "$f")"
   OUTPUT_BYTES=$((OUTPUT_BYTES + out_size))
-  python3 - "$out" "$out_size" "$src_size" <<'PY'
+  python3 - "$out" "$out_size" "$src_size" "$json_sidecar" <<'PY'
 import sys
-path, out_s, src_s = sys.argv[1], int(sys.argv[2]), int(sys.argv[3])
+path, out_s, src_s, sidecar = sys.argv[1], int(sys.argv[2]), int(sys.argv[3]), sys.argv[4]
 ratio = (src_s / out_s) if out_s else 0
 print(f"  Done: {path} ({out_s/1048576:.2f} MB, {ratio:.1f}:1)")
+print(f"  Sidecar: {sidecar}")
 PY
   echo
   OK=$((OK + 1))
@@ -254,6 +307,7 @@ done
 
 echo "Compact conversion complete."
 echo "  Succeeded: $OK  Failed: $FAILED"
+echo "  Metadata log: $METADATA_CSV"
 python3 -c "print(f'  Output total: {$OUTPUT_BYTES/1048576:.2f} MB / budget {$TARGET_TOTAL_BYTES/1048576:.2f} MB')"
 if [[ "$OUTPUT_BYTES" -gt "$MAX_OUTPUT_BYTES" ]]; then
   echo "WARNING: Output exceeded max budget. Re-run with lower --max-video-kbps or --height." >&2

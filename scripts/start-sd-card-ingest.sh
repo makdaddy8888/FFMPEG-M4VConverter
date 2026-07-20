@@ -25,6 +25,8 @@ Options:
   --height N            Output height (default: 480)
   --keep-watching       After one card, wait for the next
   --prefer-nvenc        Pass through to converter (otherwise CPU)
+  --interactive         Prompt for metadata after each clip (default if TTY)
+  --no-interactive      Batch convert without prompts
   -h, --help            Show this help
 
 Examples:
@@ -45,6 +47,7 @@ WIDTH=854
 HEIGHT=480
 KEEP_WATCHING=0
 PREFER_NVENC=0
+INTERACTIVE=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -58,10 +61,16 @@ while [[ $# -gt 0 ]]; do
     --height) HEIGHT="$2"; shift 2 ;;
     --keep-watching) KEEP_WATCHING=1; shift ;;
     --prefer-nvenc) PREFER_NVENC=1; shift ;;
+    --interactive) INTERACTIVE=1; shift ;;
+    --no-interactive) INTERACTIVE=0; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown option: $1" >&2; usage >&2; exit 1 ;;
   esac
 done
+
+if [[ -z "$INTERACTIVE" ]]; then
+  if [[ -t 0 ]]; then INTERACTIVE=1; else INTERACTIVE=0; fi
+fi
 
 if [[ ! -x "$CONVERT_SCRIPT" && -f "$CONVERT_SCRIPT" ]]; then
   chmod +x "$CONVERT_SCRIPT"
@@ -250,6 +259,11 @@ ingest_one() {
   if [[ "$PREFER_NVENC" -eq 1 ]]; then
     convert_args+=(--prefer-nvenc)
   fi
+  if [[ "$INTERACTIVE" -eq 1 ]]; then
+    convert_args+=(--interactive)
+  else
+    convert_args+=(--no-interactive)
+  fi
 
   set +e
   "$CONVERT_SCRIPT" "${convert_args[@]}"
@@ -273,6 +287,7 @@ echo "  DestRoot: $DEST_ROOT"
 echo "  Target:   ~${TARGET_RATIO}:1  (max $(awk -v b="$MAX_OUTPUT_BYTES" 'BEGIN { printf "%d", b/1048576 }') MB total output)"
 echo "  Output:   ${WIDTH}x${HEIGHT} HEVC for iPhone"
 echo "  Encoder:  libx265 CPU$([[ "$PREFER_NVENC" -eq 1 ]] && echo ' (NVENC preferred if present)')"
+echo "  Review:   $([[ "$INTERACTIVE" -eq 1 ]] && echo 'interactive (metadata prompt per clip)' || echo 'batch')"
 if [[ "$ONCE" -eq 1 || -n "$SOURCE_PATH" ]]; then
   echo "  Mode:     once"
 elif [[ "$KEEP_WATCHING" -eq 1 ]]; then
