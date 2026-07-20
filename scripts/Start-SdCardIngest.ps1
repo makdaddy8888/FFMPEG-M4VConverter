@@ -40,9 +40,15 @@
     After one successful ingest, keep watching for the next card.
     Ignored when -Once is set. Default $false (one card then exit).
 
+.PARAMETER InboxOnly
+    Skip SD detection; convert existing .MTS under Inbox.
+
+.PARAMETER InboxBatch
+    Optional Inbox batch folder name (or full path) to convert.
+
 .EXAMPLE
-    # Sit and wait for the SD card, then copy + convert
-    .\Start-SdCardIngest.ps1
+    # Auto: SD card if present, else convert saved Inbox copies
+    .\Start-SdCardIngest.ps1 -Once
 
 .EXAMPLE
     # Card already inserted on E:
@@ -52,9 +58,13 @@
     # Custom destination on D:
     .\Start-SdCardIngest.ps1 -DestRoot "D:\Camcorder"
 
+.EXAMPLE
+    .\Start-SdCardIngest.ps1 -Once -InboxOnly
+
 .NOTES
     Safe to eject only after the copy stage finishes (the script prints a clear
     "safe to eject" message). Conversion runs from the hard-drive Inbox copy.
+    Original .MTS files are never deleted.
 #>
 [CmdletBinding()]
 param(
@@ -67,7 +77,9 @@ param(
     [int]$Width = 854,
     [int]$Height = 480,
     [string[]]$ExcludeDriveLetters = @("C"),
-    [switch]$KeepWatching
+    [switch]$KeepWatching,
+    [switch]$InboxOnly,
+    [string]$InboxBatch
 )
 
 Set-StrictMode -Version Latest
@@ -382,23 +394,93 @@ function Invoke-IngestForSource {
     return $convertExit
 }
 
+function Get-InboxBatchesWithMts {
+    if (-not (Test-Path -LiteralPath $inboxRoot)) { return @() }
+    Get-ChildItem -LiteralPath $inboxRoot -Directory -ErrorAction SilentlyContinue |
+        Sort-Object LastWriteTime -Descending |
+        Where-Object {
+            @(Get-ChildItem -LiteralPath $_.FullName -File -Filter *.MTS -ErrorAction SilentlyContinue).Count -gt 0 -or
+            @(Get-ChildItem -LiteralPath $_.FullName -File -Filter *.mts -ErrorAction SilentlyContinue).Count -gt 0
+        }
+}
+
+function Invoke-IngestFromInbox {
+    param([string]$PreferredBatch)
+
+    $batchDir = $null
+    if ($PreferredBatch) {
+        if (Test-Path -LiteralPath $PreferredBatch) {
+            $batchDir = Get-Item -LiteralPath $PreferredBatch
+        }
+        elseif (Test-Path -LiteralPath (Join-Path $inboxRoot $PreferredBatch)) {
+            $batchDir = Get-Item -LiteralPath (Join-Path $inboxRoot $PreferredBatch)
+        }
+        else {
+            Write-Error "Inbox batch not found: $PreferredBatch"
+            return 1
+        }
+    }
+    else {
+        $batches = @(Get-InboxBatchesWithMts)
+        if ($batches.Count -eq 0) {
+            Write-Error "No saved .MTS files found under $inboxRoot. Insert an SD card or copy clips into Inbox first."
+            return 1
+        }
+        if ($batches.Count -gt 1) {
+            Write-Host "Multiple Inbox batches found; using the newest:" -ForegroundColor Yellow
+            $batches | Select-Object -First 5 | ForEach-Object { Write-Host "  $($_.Name)" }
+        }
+        $batchDir = $batches[0]
+    }
+
+    $inboxPath = $batchDir.FullName
+    $batchName = $batchDir.Name
+    $iphonePath = Join-Path $iphoneRoot $batchName
+    $script:LogFile = Join-Path $logRoot "$batchName-convert.log"
+    New-Item -ItemType Directory -Path $iphonePath -Force | Out-Null
+
+    Write-Log "========================================" "INFO" Cyan
+    Write-Log "No SD card used — converting existing Inbox copies" "INFO" Cyan
+    Write-Log "Inbox:  $inboxPath"
+    Write-Log "iPhone: $iphonePath"
+
+    & $convertScript `
+        -InputFolder $inboxPath `
+        -OutputFolder $iphonePath `
+        -TargetRatio $TargetRatio `
+        -MaxOutputBytes $MaxOutputBytes `
+        -Width $Width `
+        -Height $Height
+
+    $convertExit = $LASTEXITCODE
+    Write-Log "Batch complete: $batchName" "INFO" Cyan
+    return $convertExit
+}
+
 Write-Host ""
 Write-Host "  SD Card Auto-Ingest" -ForegroundColor Cyan
 Write-Host "  DestRoot: $DestRoot"
 Write-Host "  Target:   ~${TargetRatio}:1  (max $([math]::Round($MaxOutputBytes/1MB)) MB total output)"
 Write-Host "  Output:   ${Width}x${Height} HEVC for iPhone"
-if ($Once) {
-    Write-Host "  Mode:     once (no watch loop)"
+if ($InboxOnly) {
+    Write-Host "  Mode:     inbox-only"
+}
+elseif ($Once) {
+    Write-Host "  Mode:     auto (SD card if present, else Inbox)"
 }
 elseif ($KeepWatching) {
     Write-Host "  Mode:     watch (process every new card)"
 }
 else {
-    Write-Host "  Mode:     watch until first card, then exit"
+    Write-Host "  Mode:     auto (SD card if present, else Inbox)"
 }
 Write-Host ""
 
 $processedFingerprints = New-Object 'System.Collections.Generic.HashSet[string]'
+
+if ($InboxOnly) {
+    exit (Invoke-IngestFromInbox -PreferredBatch $InboxBatch)
+}
 
 if ($DriveLetter) {
     $forced = Find-MtsSources -Roots @() -ForcedDriveLetter $DriveLetter
@@ -410,17 +492,17 @@ if ($DriveLetter) {
     exit $exitCode
 }
 
-if ($Once) {
+# Default / -Once: try SD card, else Inbox
+if ($Once -or -not $KeepWatching) {
     $found = Find-MtsSources -Roots (Get-RemovableDriveRoots -Exclude $ExcludeDriveLetters)
-    if ($found.Count -eq 0) {
-        Write-Error "No SD card with .MTS files detected. Insert the card and retry, or pass -DriveLetter."
-        exit 1
+    if ($found.Count -gt 0) {
+        if ($found.Count -gt 1) {
+            Write-Host "Multiple cards found; using the first: $($found[0].Root)" -ForegroundColor Yellow
+        }
+        exit (Invoke-IngestForSource -Source $found[0])
     }
-    if ($found.Count -gt 1) {
-        Write-Host "Multiple cards found; using the first: $($found[0].Root)" -ForegroundColor Yellow
-    }
-    $exitCode = Invoke-IngestForSource -Source $found[0]
-    exit $exitCode
+    Write-Host "No SD card with .MTS detected — looking for saved Inbox copies..." -ForegroundColor Yellow
+    exit (Invoke-IngestFromInbox -PreferredBatch $InboxBatch)
 }
 
 Write-Host "Waiting for an SD card with .MTS files..." -ForegroundColor Yellow

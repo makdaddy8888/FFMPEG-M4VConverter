@@ -97,14 +97,15 @@ Pass `--prefer-nvenc` / `-PreferNvenc` only if you have a working NVIDIA encoder
 ### Linux (recommended on this machine)
 
 ```bash
-# Watch for the SD card to mount, then copy + convert
+# Smart default: SD card present → copy+convert; otherwise convert saved Inbox
 ./scripts/start-sd-card-ingest.sh
 
 # Card already mounted:
-./scripts/start-sd-card-ingest.sh --once
+./scripts/start-sd-card-ingest.sh --source-path /media/$USER/YOUR_CARD
 
-# Or point at the STREAM folder / mount point directly:
-./scripts/start-sd-card-ingest.sh --once --source-path /media/$USER/YOUR_CARD
+# Force use of existing hard-drive copies only:
+./scripts/start-sd-card-ingest.sh --inbox-only
+
 ./scripts/start-sd-card-ingest.sh --dest-root "$HOME/Videos/Camcorder"
 ```
 
