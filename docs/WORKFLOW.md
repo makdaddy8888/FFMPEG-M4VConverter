@@ -30,6 +30,46 @@ Re-encoding once to a good archive, then downsampling for mobile, avoids running
 
 ## Recommended Pipeline
 
+### A. Auto SD card ingest (default for full cards)
+
+Best when you plug an 8 GB (or similar) camcorder card into the PC and want
+phone-ready clips totaling about **1/8th** the source size.
+
+```
+ Plug SD card (front reader)
+        │
+        ▼
+ ┌──────────────────┐
+ │ 1. DETECT        │  Start-SdCardIngest.ps1
+ │    find STREAM   │  PRIVATE\AVCHD\BDMV\STREAM or recursive *.MTS
+ └────────┬─────────┘
+          ▼
+ ┌──────────────────┐
+ │ 2. COPY          │  Inbox\<timestamp>_<label>\
+ │    .MTS → HDD    │  then safe to eject
+ └────────┬─────────┘
+          ▼
+ ┌──────────────────┐
+ │ 3. COMPACT       │  Convert-MtsToCompact.ps1
+ │    ~8:1 HEVC     │  480p + creation_time + bitrate budget
+ └────────┬─────────┘
+          ▼
+    iPhone\... ready to copy to phone
+```
+
+```powershell
+.\scripts\Start-SdCardIngest.ps1
+# or
+.\scripts\Start-SdCardIngest.ps1 -Once -DriveLetter E -DestRoot "D:\Camcorder"
+```
+
+**Size budget:** the converter sums source bytes and durations, then picks an
+average video bitrate so the batch lands near `TargetRatio` (default 8) and
+under `MaxOutputBytes` (default 1 GiB). Bitrate is clamped between 600–1800 kbps
+so quality stays watchable on an iPhone without ballooning file size.
+
+### B. Two-step archive pipeline (optional master)
+
 ```
  SD card .MTS files
         │
@@ -61,7 +101,28 @@ Re-encoding once to a good archive, then downsampling for mobile, avoids running
 
 ## Step-by-Step
 
-### Step 0 — Inspect before you encode
+### Step 0 — Auto ingest from the SD card
+
+**Script:** `scripts/Start-SdCardIngest.ps1`
+
+1. Run the script **before or after** inserting the card.
+2. It looks for `PRIVATE\AVCHD\BDMV\STREAM\*.MTS` (or any `.MTS` on the volume).
+3. Copies clips to `%USERPROFILE%\Videos\CamcorderIngest\Inbox\<batch>\`.
+4. Prints a green **safe to eject** banner when the copy finishes.
+5. Converts from the Inbox copy via `Convert-MtsToCompact.ps1` into `iPhone\<batch>\`.
+
+Useful switches:
+
+| Switch | Purpose |
+|--------|---------|
+| `-Once` | Process an already-inserted card, then exit |
+| `-DriveLetter E` | Skip detection; use drive E: |
+| `-DestRoot D:\Camcorder` | Inbox / iPhone / Logs root |
+| `-KeepWatching` | After one card, wait for the next |
+| `-TargetRatio 8` | Size ratio goal (default 8) |
+| `-MaxOutputBytes 1GB` | Hard ceiling for total phone output |
+
+### Step 0b — Inspect before you encode (manual path)
 
 Always probe one representative file first:
 
@@ -145,8 +206,10 @@ For **720p** instead of 480p, use `scripts/Convert-ToIphone720.ps1`.
 
 | Your situation | Use this |
 |----------------|----------|
+| Plug SD card → auto copy + phone converts | `Start-SdCardIngest.ps1` |
+| Already copied `.MTS`, want ~8:1 phone size | `Convert-MtsToCompact.ps1` |
 | Blu-ray `.m2ts` rips, no GPU | `Convert-M2tsToMp4.ps1` (CPU `libx264`) |
-| Tight file-size budget | `Convert-MtsToMobile.ps1` (fixed bitrate cap `2M`) |
+| Tight file-size budget, fixed 2 Mbps | `Convert-MtsToMobile.ps1` |
 | Mixed formats already on disk | `Convert-ToIphone720.ps1` |
 | Early codec comparison | `Convert-M2ts-Experiments.ps1` (commented FFmpeg one-liners) |
 
@@ -283,7 +346,9 @@ Use `Convert-M2tsToMp4.ps1` as a template (`libx264`, `-crf 20`, `-preset slow`)
 
 ### "I want one script, not two steps"
 
-Merge archive and iPhone filters into a single FFmpeg call — trade-off: you cannot re-generate phone copies from a master later without re-deinterlacing.
+Use `Start-SdCardIngest.ps1` (copy + compact convert) or `Convert-MtsToCompact.ps1`
+if files are already on disk. Trade-off vs the archive path: you cannot re-generate
+phone copies from a 1080p master later without re-deinterlacing the original `.MTS`.
 
 ### "I use Plex and want dates + descriptions"
 
