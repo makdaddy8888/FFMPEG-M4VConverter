@@ -42,7 +42,8 @@
     Path to ffprobe executable.
 
 .PARAMETER PreferNvenc
-    Prefer NVIDIA NVENC when available (default $true). Falls back to libx265.
+    Prefer NVIDIA NVENC when available. Default is CPU libx265 (works on
+    machines without an NVIDIA GPU). Pass -PreferNvenc:\$true to opt in.
 
 .EXAMPLE
     .\Convert-MtsToCompact.ps1 -InputFolder "D:\Camcorder\Inbox\2026-07-20" -OutputFolder "D:\Camcorder\iPhone\2026-07-20"
@@ -68,7 +69,7 @@ param(
     [int]$MaxVideoBitrateKbps = 1800,
     [string]$FfmpegPath = "ffmpeg",
     [string]$FfprobePath = "ffprobe",
-    [bool]$PreferNvenc = $true
+    [bool]$PreferNvenc = $false
 )
 
 Set-StrictMode -Version Latest

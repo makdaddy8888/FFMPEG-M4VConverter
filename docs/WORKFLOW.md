@@ -58,9 +58,16 @@ phone-ready clips totaling about **1/8th** the source size.
 ```
 
 ```powershell
+# Windows
 .\scripts\Start-SdCardIngest.ps1
-# or
 .\scripts\Start-SdCardIngest.ps1 -Once -DriveLetter E -DestRoot "D:\Camcorder"
+```
+
+```bash
+# Linux (CPU libx265 — no NVIDIA required)
+./scripts/start-sd-card-ingest.sh
+./scripts/start-sd-card-ingest.sh --once --source-path /media/$USER/YOUR_CARD
+./scripts/start-sd-card-ingest.sh --dest-root "$HOME/Videos/Camcorder"
 ```
 
 **Size budget:** the converter sums source bytes and durations, then picks an
@@ -103,13 +110,15 @@ so quality stays watchable on an iPhone without ballooning file size.
 
 ### Step 0 — Auto ingest from the SD card
 
-**Script:** `scripts/Start-SdCardIngest.ps1`
+**Script:** `scripts/Start-SdCardIngest.ps1` (Windows) or `scripts/start-sd-card-ingest.sh` (Linux)
 
 1. Run the script **before or after** inserting the card.
-2. It looks for `PRIVATE\AVCHD\BDMV\STREAM\*.MTS` (or any `.MTS` on the volume).
-3. Copies clips to `%USERPROFILE%\Videos\CamcorderIngest\Inbox\<batch>\`.
+2. It looks for `PRIVATE/AVCHD/BDMV/STREAM/*.MTS` (or any `.MTS` on the volume).
+3. Copies clips to `~/Videos/CamcorderIngest/Inbox/<batch>/` (or `%USERPROFILE%\Videos\...` on Windows).
 4. Prints a green **safe to eject** banner when the copy finishes.
-5. Converts from the Inbox copy via `Convert-MtsToCompact.ps1` into `iPhone\<batch>\`.
+5. Converts from the Inbox copy via `convert-mts-to-compact` into `iPhone/<batch>/`.
+
+Encoding is **CPU-first** (`libx265`). The original archive scripts still expect NVIDIA NVENC; use those only on a machine with a working GPU encoder.
 
 Useful switches:
 
@@ -206,8 +215,9 @@ For **720p** instead of 480p, use `scripts/Convert-ToIphone720.ps1`.
 
 | Your situation | Use this |
 |----------------|----------|
-| Plug SD card → auto copy + phone converts | `Start-SdCardIngest.ps1` |
-| Already copied `.MTS`, want ~8:1 phone size | `Convert-MtsToCompact.ps1` |
+| Plug SD card → auto copy + phone converts | `start-sd-card-ingest.sh` / `Start-SdCardIngest.ps1` |
+| Already copied `.MTS`, want ~8:1 phone size | `convert-mts-to-compact.sh` / `Convert-MtsToCompact.ps1` |
+| No NVIDIA GPU | Use the compact scripts above (CPU `libx265`); avoid archive NVENC scripts |
 | Blu-ray `.m2ts` rips, no GPU | `Convert-M2tsToMp4.ps1` (CPU `libx264`) |
 | Tight file-size budget, fixed 2 Mbps | `Convert-MtsToMobile.ps1` |
 | Mixed formats already on disk | `Convert-ToIphone720.ps1` |

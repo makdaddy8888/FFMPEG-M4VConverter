@@ -90,39 +90,51 @@ Plug the card in, run one script. It copies every `.MTS` file to the hard drive,
 then converts to compact iPhone HEVC aiming for an **~8:1** size ratio
 (e.g. an 8 GB card → about **1 GB** of phone-ready clips).
 
+**Hardware note:** the original archive scripts assumed **Windows + NVIDIA NVENC**.
+The auto-ingest path is **CPU-first** (`libx265`) and works on Linux without a GPU.
+Pass `--prefer-nvenc` / `-PreferNvenc` only if you have a working NVIDIA encoder.
+
+### Linux (recommended on this machine)
+
+```bash
+# Watch for the SD card to mount, then copy + convert
+./scripts/start-sd-card-ingest.sh
+
+# Card already mounted:
+./scripts/start-sd-card-ingest.sh --once
+
+# Or point at the STREAM folder / mount point directly:
+./scripts/start-sd-card-ingest.sh --once --source-path /media/$USER/YOUR_CARD
+./scripts/start-sd-card-ingest.sh --dest-root "$HOME/Videos/Camcorder"
+```
+
+### Windows (PowerShell)
+
 ```powershell
-# 1. Clone
-git clone https://github.com/makdaddy8888/FFMPEG-M4VConverter.git
-cd FFMPEG-M4VConverter
-
-# 2. Wait for the SD card (front reader), copy, convert
 .\scripts\Start-SdCardIngest.ps1
-
-# Or: card already inserted on E:
 .\scripts\Start-SdCardIngest.ps1 -Once -DriveLetter E
-
-# Optional: put Inbox / iPhone / Logs on D:
 .\scripts\Start-SdCardIngest.ps1 -DestRoot "D:\Camcorder"
 ```
 
 Default layout on disk:
 
 ```
-%USERPROFILE%\Videos\CamcorderIngest\
-  Inbox\2026-07-20_HHmmss_LABEL\   ← raw .MTS copies (safe to eject after copy)
-  iPhone\2026-07-20_HHmmss_LABEL\  ← compact .mp4 for the phone
-  Logs\...
+~/Videos/CamcorderIngest/          (Linux)
+%USERPROFILE%\Videos\CamcorderIngest\   (Windows)
+  Inbox/<timestamp>_LABEL/   ← raw .MTS copies (safe to eject after copy)
+  iPhone/<timestamp>_LABEL/  ← compact .mp4 for the phone
+  Logs/
 ```
 
 **Verify FFmpeg is installed:**
 
-```powershell
+```bash
 ffmpeg -version
 ffprobe -version
 ```
 
 <details>
-<summary><strong>Manual two-step archive path</strong> (1080p master, then 480p iPhone)</summary>
+<summary><strong>Manual two-step archive path</strong> (1080p master, then 480p iPhone — NVIDIA NVENC)</summary>
 
 ```powershell
 .\scripts\Convert-MtsToArchive.ps1 `
@@ -144,9 +156,11 @@ Run `Get-Help .\scripts\Convert-MtsToArchive.ps1 -Full` for any script.
 
 | Script | In → Out | Encode | Use when |
 |:-------|:---------|:-------|:---------|
-| [**Start-SdCardIngest**](scripts/Start-SdCardIngest.ps1) | SD card → Inbox + iPhone | orchestrates compact convert | **Auto** — plug in card, copy, convert |
-| [**Convert-MtsToCompact**](scripts/Convert-MtsToCompact.ps1) | `.MTS` → 480p `.mp4` | HEVC ~8:1 budget | Phone copies with size target |
-| [**Convert-MtsToArchive**](scripts/Convert-MtsToArchive.ps1) | `.MTS` → 1080p `.mp4` | HEVC NVENC | Keep a 1080p master |
+| [**start-sd-card-ingest.sh**](scripts/start-sd-card-ingest.sh) | SD card → Inbox + iPhone | orchestrates compact convert | **Linux auto** — plug in card, copy, convert |
+| [**convert-mts-to-compact.sh**](scripts/convert-mts-to-compact.sh) | `.MTS` → 480p `.mp4` | libx265 ~8:1 (CPU) | Linux phone copies with size target |
+| [**Start-SdCardIngest.ps1**](scripts/Start-SdCardIngest.ps1) | SD card → Inbox + iPhone | orchestrates compact convert | **Windows auto** |
+| [**Convert-MtsToCompact.ps1**](scripts/Convert-MtsToCompact.ps1) | `.MTS` → 480p `.mp4` | libx265 / optional NVENC | Windows phone copies with size target |
+| [**Convert-MtsToArchive**](scripts/Convert-MtsToArchive.ps1) | `.MTS` → 1080p `.mp4` | HEVC NVENC | Keep a 1080p master (NVIDIA) |
 | [**Convert-ToIphone**](scripts/Convert-ToIphone.ps1) | `.mp4` → 480p `.mp4` | HEVC NVENC | Downscale archive + dates |
 | [**Convert-ToIphone720**](scripts/Convert-ToIphone720.ps1) | any → 720p `.mp4` | HEVC NVENC | Bigger screens |
 | [**Convert-MtsToMobile**](scripts/Convert-MtsToMobile.ps1) | `.MTS` → 480p `.mp4` | HEVC, 2 Mbps cap | Fixed bitrate, no budget math |
@@ -159,14 +173,15 @@ Run `Get-Help .\scripts\Convert-MtsToArchive.ps1 -Full` for any script.
 
 | | Auto compact (default) | Archive | iPhone (from archive) |
 |:--|:-----------------------|:--------|:----------------------|
-| **Script** | `Convert-MtsToCompact` | `Convert-MtsToArchive` | `Convert-ToIphone` |
-| **Codec** | `hevc_nvenc` / `libx265` | `hevc_nvenc` | `hevc_nvenc` |
+| **Script** | `convert-mts-to-compact` / `.ps1` | `Convert-MtsToArchive` | `Convert-ToIphone` |
+| **Codec** | `libx265` CPU (optional NVENC) | `hevc_nvenc` | `hevc_nvenc` |
 | **Deinterlace** | `yadif=mode=1` | `yadif=mode=1` | `yadif=mode=1` |
 | **Resolution** | 854 × 480 | 1080p (source) | 854 × 480 |
 | **Quality** | Budget bitrate (~0.6–1.8 Mbps) | CQ 27 · VBR · max 6M | CQ 27 · VBR |
 | **Size goal** | ~8:1 · max 1 GB / card | Larger master | Smaller share copy |
 | **Audio** | AAC 96k | AAC 192k | AAC 128k |
 | **Extras** | `+faststart` · `creation_time` | `+faststart` | `+faststart` · `creation_time` |
+| **GPU** | Not required | NVIDIA NVENC | NVIDIA NVENC |
 **No NVIDIA GPU?** Use `Convert-M2tsToMp4.ps1`, or swap in:
 
 ```powershell
@@ -234,9 +249,9 @@ Full guide → **[docs/WORKFLOW.md](docs/WORKFLOW.md)**
 
 | | |
 |:--|:--|
-| OS | Windows · PowerShell 5.1+ |
+| OS | Linux (bash) or Windows · PowerShell 5.1+ |
 | Tools | [FFmpeg](https://ffmpeg.org/download.html) + ffprobe on PATH |
-| GPU | Optional — NVIDIA with NVENC (GTX 1070+ tested) |
+| GPU | **Not required** for auto-ingest / compact convert. Optional NVIDIA NVENC for the older archive scripts |
 | Docs | [WORKFLOW.md](docs/WORKFLOW.md) for the full pipeline |
 
 ---
