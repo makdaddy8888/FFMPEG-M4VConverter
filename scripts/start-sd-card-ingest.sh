@@ -162,7 +162,7 @@ discover_sources() {
     [[ -n "$root" ]] || continue
     # Never treat our own Inbox / iPhone folders as an SD card
     case "$root" in
-      "$DEST_ROOT"|"$INBOX_ROOT"|"$IPHONE_ROOT"| "$DEST_ROOT"/*) continue ;;
+      "$DEST_ROOT"|"$INBOX_ROOT"|"$IPHONE_ROOT"|"$DEST_ROOT"/*) continue ;;
     esac
     if src="$(find_mts_source "$root")"; then
       printf '%s\t%s\n' "$root" "$src"
