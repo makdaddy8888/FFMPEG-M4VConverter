@@ -187,46 +187,40 @@ cam_meta_open_player() {
   echo "  (Install VLC or set CAM_META_PLAYER to preview clips.)"
 }
 
-cam_meta_interactive_review() {
-  # Sets globals: META_TITLE META_DESC META_LOC META_LAT META_LON META_ISO6709 META_CREATION META_NOTES
-  local file="$1" stem="$2" creation="$3" source_fps="$4" out_fps="$5"
-  META_TITLE="$stem"
-  META_DESC=""
-  META_LOC=""
-  META_LAT=""
-  META_LON=""
-  META_ISO6709=""
-  META_CREATION="$creation"
-  META_NOTES=""
+cam_meta_is_back_cmd() {
+  # True if the user asked to go to the previous field
+  local s
+  s="$(echo "${1:-}" | tr '[:upper:]' '[:lower:]' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+  case "$s" in
+    back|b|up|'<'|'^'|prev|previous) return 0 ;;
+    *) return 1 ;;
+  esac
+}
 
-  echo ""
-  echo "  ┌─────────────────────────────────────────────────────────"
-  echo "  │ Review clip: $(basename "$file")"
-  echo "  │ Recorded:     $creation"
-  echo "  │ Source fps:   $source_fps  →  output: ${out_fps} fps progressive"
-  echo "  └─────────────────────────────────────────────────────────"
-  cam_meta_open_player "$file"
-  echo ""
-  echo "  Watch the clip, then enter metadata (Enter = keep default / skip)."
-  echo ""
-
-  read -r -p "  Title [$META_TITLE]: " ans
-  [[ -n "$ans" ]] && META_TITLE="$ans"
-
-  read -r -p "  Description / what happens in this clip: " META_DESC
-
-  read -r -p "  Location name (e.g. Beach holiday): " META_LOC
-
-  read -r -p "  Latitude (decimal, e.g. -27.47): " META_LAT
-  read -r -p "  Longitude (decimal, e.g. 153.03): " META_LON
-  if [[ -n "$META_LAT" && -n "$META_LON" ]]; then
-    META_ISO6709="$(cam_meta_iso6709 "$META_LAT" "$META_LON" || true)"
+cam_meta_read_field() {
+  # Read one editable field with readline (←→ move cursor, edit typos).
+  # Usage: cam_meta_read_field PROMPT DEFAULT_VALUE → prints answer on stdout
+  # Exit 2 if user typed a "back" command.
+  # Prefills DEFAULT so you can arrow left and fix mistakes in place.
+  local prompt="$1" default="${2:-}" ans
+  # -e = readline (arrow keys work); -i = initial text to edit
+  if [[ -n "$default" ]]; then
+    read -e -i "$default" -r -p "$prompt" ans || true
+  else
+    read -e -r -p "$prompt" ans || true
   fi
+  if cam_meta_is_back_cmd "$ans"; then
+    return 2
+  fi
+  printf '%s' "$ans"
+}
 
-  read -r -p "  Recording date override (DDMMYYYY, blank = use $creation): " date_override
-  if [[ -n "$date_override" ]]; then
-    # Parse DDMMYYYY to ISO
-    META_CREATION="$(python3 - "$date_override" <<'PY'
+cam_meta_parse_date_override() {
+  # DDMMYYYY → ISO, or empty on failure
+  local date_override="$1" creation_fallback="$2"
+  [[ -n "$date_override" ]] || { printf '%s' "$creation_fallback"; return 0; }
+  local parsed
+  parsed="$(python3 - "$date_override" <<'PY'
 import sys
 from datetime import datetime
 d = sys.argv[1].strip()
@@ -237,12 +231,146 @@ except ValueError:
     print("")
 PY
 )"
-    if [[ -z "$META_CREATION" ]]; then
-      echo "  Invalid date format; keeping original creation time."
-      META_CREATION="$creation"
-    fi
+  if [[ -z "$parsed" ]]; then
+    echo "  Invalid date format; keeping original creation time." >&2
+    printf '%s' "$creation_fallback"
+  else
+    printf '%s' "$parsed"
+  fi
+}
+
+cam_meta_interactive_review() {
+  # Sets globals: META_TITLE META_DESC META_LOC META_LAT META_LON META_ISO6709 META_CREATION META_NOTES
+  # If CAM_META_PREFILL=1, keep any META_* values already set by the caller (edit mode).
+  local file="$1" stem="$2" creation="$3" source_fps="$4" out_fps="$5"
+  if [[ "${CAM_META_PREFILL:-0}" == "1" ]]; then
+    META_TITLE="${META_TITLE:-$stem}"
+    META_DESC="${META_DESC:-}"
+    META_LOC="${META_LOC:-}"
+    META_LAT="${META_LAT:-}"
+    META_LON="${META_LON:-}"
+    META_ISO6709="${META_ISO6709:-}"
+    META_CREATION="${META_CREATION:-$creation}"
+    META_NOTES="${META_NOTES:-}"
+  else
+    META_TITLE="$stem"
+    META_DESC=""
+    META_LOC=""
+    META_LAT=""
+    META_LON=""
+    META_ISO6709=""
+    META_CREATION="$creation"
+    META_NOTES=""
+  fi
+  local date_override="" ans step=0 status=0 choice=""
+  if [[ -n "$META_CREATION" && "$META_CREATION" != "$creation" ]]; then
+    date_override="$(cam_meta_date_suffix "$META_CREATION" || true)"
   fi
 
-  read -r -p "  Notes (private log): " META_NOTES
+  echo ""
+  echo "  ┌─────────────────────────────────────────────────────────"
+  echo "  │ Review clip: $(basename "$file")"
+  echo "  │ Recorded:     $creation"
+  echo "  │ Source fps:   $source_fps  →  output: ${out_fps} fps progressive"
+  echo "  └─────────────────────────────────────────────────────────"
+  cam_meta_open_player "$file"
+  echo ""
+  echo "  Watch the clip, then enter metadata."
+  echo "  Tips:  ← → move cursor to fix typos   |   type back  = previous field"
+  echo "         Enter keeps the text shown     |   type back on Title = stay"
+  echo ""
+
+  # Field order: 0 title, 1 desc, 2 loc, 3 lat, 4 lon, 5 date, 6 notes, 7 confirm
+  while true; do
+    case "$step" in
+      0)
+        ans="$(cam_meta_read_field "  Title: " "$META_TITLE")"
+        status=$?
+        if [[ $status -eq 2 ]]; then
+          echo "  (Already at first field.)"
+          continue
+        fi
+        [[ -n "$ans" ]] && META_TITLE="$ans"
+        step=1
+        ;;
+      1)
+        ans="$(cam_meta_read_field "  Description / what happens: " "$META_DESC")"
+        status=$?
+        if [[ $status -eq 2 ]]; then step=0; continue; fi
+        META_DESC="$ans"
+        step=2
+        ;;
+      2)
+        ans="$(cam_meta_read_field "  Location name (e.g. Beach holiday): " "$META_LOC")"
+        status=$?
+        if [[ $status -eq 2 ]]; then step=1; continue; fi
+        META_LOC="$ans"
+        step=3
+        ;;
+      3)
+        ans="$(cam_meta_read_field "  Latitude (decimal, e.g. -27.47): " "$META_LAT")"
+        status=$?
+        if [[ $status -eq 2 ]]; then step=2; continue; fi
+        META_LAT="$ans"
+        step=4
+        ;;
+      4)
+        ans="$(cam_meta_read_field "  Longitude (decimal, e.g. 153.03): " "$META_LON")"
+        status=$?
+        if [[ $status -eq 2 ]]; then step=3; continue; fi
+        META_LON="$ans"
+        if [[ -n "$META_LAT" && -n "$META_LON" ]]; then
+          META_ISO6709="$(cam_meta_iso6709 "$META_LAT" "$META_LON" || true)"
+        else
+          META_ISO6709=""
+        fi
+        step=5
+        ;;
+      5)
+        ans="$(cam_meta_read_field "  Recording date override (DDMMYYYY, blank = keep): " "$date_override")"
+        status=$?
+        if [[ $status -eq 2 ]]; then step=4; continue; fi
+        date_override="$ans"
+        META_CREATION="$(cam_meta_parse_date_override "$date_override" "$creation")"
+        step=6
+        ;;
+      6)
+        ans="$(cam_meta_read_field "  Notes (private log): " "$META_NOTES")"
+        status=$?
+        if [[ $status -eq 2 ]]; then step=5; continue; fi
+        META_NOTES="$ans"
+        step=7
+        ;;
+      7)
+        echo ""
+        echo "  ── Summary ─────────────────────────────────────────────"
+        echo "  Title:       $META_TITLE"
+        echo "  Description: ${META_DESC:-—}"
+        echo "  Location:    ${META_LOC:-—}"
+        echo "  Lat/Lon:     ${META_LAT:-—} / ${META_LON:-—}"
+        echo "  Date:        $META_CREATION"
+        echo "  Notes:       ${META_NOTES:-—}"
+        echo "  ────────────────────────────────────────────────────────"
+        ans="$(cam_meta_read_field "  OK? [Enter=yes / back / title / desc / loc / lat / lon / date / notes]: " "")"
+        status=$?
+        if [[ $status -eq 2 ]]; then step=6; continue; fi
+        choice="$(echo "${ans:-}" | tr '[:upper:]' '[:lower:]' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+        case "$choice" in
+          ""|y|yes|ok|done) break ;;
+          title|t) step=0 ;;
+          desc|description|d) step=1 ;;
+          loc|location|l) step=2 ;;
+          lat|latitude) step=3 ;;
+          lon|longitude|long) step=4 ;;
+          date) step=5 ;;
+          notes|n) step=6 ;;
+          *)
+            echo "  Unknown choice. Press Enter to accept, or type title / desc / back."
+            ;;
+        esac
+        ;;
+      *) step=0 ;;
+    esac
+  done
   echo ""
 }

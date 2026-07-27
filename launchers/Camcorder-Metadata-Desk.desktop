@@ -1,0 +1,13 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Camcorder Metadata Desk
+GenericName=Edit camcorder clip metadata
+Comment=Review thumbnails and fix titles, descriptions, and locations
+Exec=PLACEHOLDER_LAUNCH
+Path=PLACEHOLDER_REPO
+Icon=applications-multimedia
+Terminal=false
+Categories=AudioVideo;Video;Utility;
+Keywords=ffmpeg;metadata;camcorder;iphone;thumbnail;
+StartupNotify=true

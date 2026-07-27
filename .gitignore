@@ -38,6 +38,9 @@ convert_encode.ps1
 # OAuth tokens and credentials (never commit)
 yt_token.json
 *_token.json
+client_secret.json
+client_secret*.json
+youtube-upload-log.json
 .env
 .env.*
 secrets.ps1

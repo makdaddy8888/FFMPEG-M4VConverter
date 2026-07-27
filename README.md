@@ -96,7 +96,39 @@ Pass `--prefer-nvenc` / `-PreferNvenc` only if you have a working NVIDIA encoder
 
 ### Linux (recommended on this machine)
 
+**Double-click launcher (one-time setup):**
+
 ```bash
+./scripts/install-desktop-launcher.sh
+```
+
+That puts **Camcorder SD Ingest** on your Desktop and in the Apps menu.
+Double-click it (or Allow Launching the first time on Ubuntu) to open a
+terminal and run the full copy + convert workflow.
+
+**Metadata desk (thumbnails + edit in the browser):**
+
+```bash
+./scripts/start-metadata-editor.sh
+./scripts/start-metadata-editor.sh --dir 2026-07-23_104722_7BDA-675E
+```
+
+Opens http://127.0.0.1:8765 — review thumbs, fix titles/descriptions/locations,
+saves JSON sidecars + MP4 tags (no re-encode).
+
+**Upload to YouTube** (one-time Google Cloud OAuth setup — see script `--help`):
+
+```bash
+./scripts/start-youtube-upload.sh --install-deps
+# save Desktop OAuth JSON to ~/.config/camcorder-ingest/client_secret.json
+./scripts/start-youtube-upload.sh --dir ~/Videos/CamcorderIngest/iPhone/2026-07-23_104722_7BDA-675E --dry-run
+./scripts/start-youtube-upload.sh --dir ~/Videos/CamcorderIngest/iPhone/2026-07-23_104722_7BDA-675E --privacy private --limit 5
+```
+
+Default privacy is **private**. Resume-friendly (skips already uploaded). Default API quota is ~6 uploads/day.
+
+```bash
+# Or run from a terminal:
 # Smart default: SD card present → copy+convert; otherwise convert saved Inbox
 ./scripts/start-sd-card-ingest.sh
 
@@ -157,6 +189,7 @@ Run `Get-Help .\scripts\Convert-MtsToArchive.ps1 -Full` for any script.
 
 | Script | In → Out | Encode | Use when |
 |:-------|:---------|:-------|:---------|
+| [**start-metadata-editor.sh**](scripts/start-metadata-editor.sh) | iPhone batch → browser UI | none (tag remux only) | Review thumbs + fix metadata |
 | [**start-sd-card-ingest.sh**](scripts/start-sd-card-ingest.sh) | SD card → Inbox + iPhone | orchestrates compact convert | **Linux auto** — plug in card, copy, convert |
 | [**convert-mts-to-compact.sh**](scripts/convert-mts-to-compact.sh) | `.MTS` → 480p `.mp4` | libx265 ~8:1 (CPU) | Linux phone copies with size target |
 | [**Start-SdCardIngest.ps1**](scripts/Start-SdCardIngest.ps1) | SD card → Inbox + iPhone | orchestrates compact convert | **Windows auto** |
