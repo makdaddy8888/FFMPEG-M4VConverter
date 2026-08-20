@@ -1,0 +1,13 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Camcorder SD Ingest
+GenericName=Convert camcorder MTS to iPhone MP4
+Comment=Copy SD card .MTS clips and convert to compact phone-ready MP4
+Exec=PLACEHOLDER_LAUNCH
+Path=PLACEHOLDER_REPO
+Icon=camera-video
+Terminal=false
+Categories=AudioVideo;Video;Utility;
+Keywords=ffmpeg;mts;avchd;camcorder;iphone;sd;
+StartupNotify=true

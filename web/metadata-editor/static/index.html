@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Camcorder metadata</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=Source+Sans+3:wght@400;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <div class="app">
+    <header class="top">
+      <div class="brand">
+        <p class="eyebrow">Camcorder ingest</p>
+        <h1>Metadata desk</h1>
+      </div>
+      <div class="top-controls">
+        <label class="field-inline">
+          <span>Batch</span>
+          <select id="batchSelect"></select>
+        </label>
+        <div class="filters" role="tablist" aria-label="Filter clips">
+          <button type="button" class="chip active" data-filter="attention">Needs attention</button>
+          <button type="button" class="chip" data-filter="empty">Empty desc</button>
+          <button type="button" class="chip" data-filter="all">All</button>
+        </div>
+      </div>
+    </header>
+
+    <main class="review" id="review">
+      <p id="emptyState" class="empty hidden">No clips match this filter.</p>
+
+      <div id="reviewBody" class="review-body">
+        <section class="media-pane">
+          <div class="progress-row">
+            <p class="progress" id="progressText">Clip —</p>
+            <div class="flags" id="flagList"></div>
+          </div>
+          <div class="preview-wrap">
+            <video id="preview" controls playsinline preload="metadata"></video>
+          </div>
+          <img id="thumbStill" class="thumb-still" alt="Thumbnail still" />
+          <p class="clip-id" id="clipIdLabel"></p>
+          <p class="hint">Edit fields on the right, then <strong>Save &amp; Next</strong>. Shortcuts: <kbd>Ctrl</kbd>+<kbd>Enter</kbd> save &amp; next · <kbd>←</kbd>/<kbd>→</kbd> prev/next without saving</p>
+        </section>
+
+        <section class="form-pane">
+          <form id="editorForm" class="editor-form">
+            <label>Title
+              <input id="f_title" name="title" type="text" autocomplete="off" />
+            </label>
+            <label>Description
+              <textarea id="f_description" name="description" rows="4"></textarea>
+            </label>
+            <label>Location
+              <input id="f_location_name" name="location_name" type="text" list="locHints" autocomplete="off" />
+            </label>
+            <datalist id="locHints"></datalist>
+            <div class="row2">
+              <label>Latitude
+                <input id="f_latitude" name="latitude" type="text" inputmode="decimal" />
+              </label>
+              <label>Longitude
+                <input id="f_longitude" name="longitude" type="text" inputmode="decimal" />
+              </label>
+            </div>
+            <label>Recording time (ISO or DDMMYYYY)
+              <input id="f_creation_time" name="creation_time" type="text" />
+            </label>
+            <label>Notes
+              <input id="f_notes" name="notes" type="text" />
+            </label>
+            <p class="save-msg" id="saveMsg"></p>
+          </form>
+        </section>
+      </div>
+    </main>
+
+    <footer class="action-bar" id="actionBar">
+      <button type="button" class="btn" id="prevBtn">Previous</button>
+      <button type="button" class="btn" id="skipBtn">Skip</button>
+      <button type="button" class="btn primary" id="saveNextBtn">Save &amp; Next</button>
+    </footer>
+  </div>
+  <script src="/static/app.js"></script>
+</body>
+</html>
